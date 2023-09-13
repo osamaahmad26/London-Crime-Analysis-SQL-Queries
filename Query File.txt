@@ -1,0 +1,248 @@
+ -- Sorting the Data from Starting Year and Month
+SELECT * 
+  FROM `bigquery-public-data.london_crime.crime_by_lsoa` 
+  ORDER BY year, month;
+
+-- Major Category with total crime count
+SELECT major_category, SUM(value) AS total
+  FROM bigquery-public-data.london_crime.crime_by_lsoa
+  GROUP BY 1
+  ORDER BY 2 DESC;
+
+
+/* - Major Category with 'division' column for highest major category and sum of total,
+   - Query for Calculating the Yearly Percentage of Crimes 'Theft and Handling' accounts for. */
+WITH maj_cat_by_year_month AS (
+  SELECT year, month, major_category,
+  CASE 
+    WHEN major_category = 'Theft and Handling' THEN 'Theft and Handling'
+    ELSE 'Other' END AS division, -- Dividing the data into 'Theft and Handling' and 'Other'
+  SUM(value) AS total
+  FROM bigquery-public-data.london_crime.crime_by_lsoa
+  GROUP BY 1,2,3
+  ORDER BY 1,2)
+
+SELECT year, division, 
+        ROUND(year_total/ SUM(year_total) OVER (PARTITION BY year) * 100, 2) AS percentage_per_year
+        FROM (SELECT year, division, SUM(total) AS year_total
+                FROM maj_cat_by_year_month
+                GROUP BY 1,2)
+        ORDER BY 1, 2 DESC;
+
+
+/* How much of Minor Categories 'Theft and Handling' Accounts for in total crimes */
+SELECT minor_category, division, total
+  FROM (SELECT major_category, minor_category,
+        CASE 
+          WHEN major_category = 'Theft and Handling' THEN 'Theft and Handling'
+          ELSE 'Other' END AS division,-- Dividing the data into 'Theft and Handling' and 'Other'
+        SUM(value) AS total
+        FROM bigquery-public-data.london_crime.crime_by_lsoa
+        GROUP BY 1,2,3
+        ORDER BY 1)
+  ORDER BY 3 DESC;
+
+
+/* What are the Highest Minor Categories for each major category */
+WITH categories_total AS (
+  SELECT major_category, minor_category, SUM(value) AS total
+        FROM bigquery-public-data.london_crime.crime_by_lsoa
+        GROUP BY 1,2
+        ORDER BY 1
+        )
+
+SELECT major_category, minor_category, total
+  FROM categories_total
+  WHERE total IN (SELECT max_total
+                    FROM (SELECT major_category, MAX(total) AS max_total
+                      FROM categories_total
+                      GROUP BY 1))
+  ORDER BY 3 DESC;
+
+
+/* How much does crime Top 5 Minor Categories account for*/
+SELECT minor_category,
+       CASE 
+        WHEN minor_category IN (SELECT minor_category
+                                  FROM (SELECT minor_category, SUM(value) AS total
+                                    FROM bigquery-public-data.london_crime.crime_by_lsoa
+                                    GROUP BY 1
+                                    ORDER BY 2 DESC
+                                    LIMIT 5))
+                            THEN 'Top 5' 
+        ELSE 'Other Minor Categories' -- Dividing the data into 'Top 5' and 'Other Minor Categories'
+       END AS division,
+       SUM(value) AS total
+  FROM bigquery-public-data.london_crime.crime_by_lsoa
+    GROUP BY 1
+    ORDER BY 3 DESC;
+
+
+
+/* Yearly Percentage of Top 5 Minor Categories Crime vs Other Minor Categories*/
+WITH top5_vs_other_minor_cat AS (
+  SELECT year, month, minor_category,
+       CASE 
+        WHEN minor_category IN (SELECT minor_category
+                                  FROM (SELECT minor_category, SUM(value) AS total
+                                    FROM bigquery-public-data.london_crime.crime_by_lsoa
+                                    GROUP BY 1
+                                    ORDER BY 2 DESC
+                                    LIMIT 5))
+                            THEN 'Top 5' 
+        ELSE 'Other Minor Categories'-- Dividing the data into 'Top 5' and 'Other Minor Categories'
+       END AS division,
+       SUM(value) AS total
+  FROM bigquery-public-data.london_crime.crime_by_lsoa
+    GROUP BY 1,2,3
+    ORDER BY 3 DESC
+    )
+
+SELECT year, division, ROUND(year_total / SUM(year_total) OVER (PARTITION BY year) * 100, 2) AS percentage 
+  FROM (SELECT year, division, SUM(total) AS year_total
+          FROM top5_vs_other_minor_cat
+          GROUP BY 1,2
+          ORDER BY 1)
+  ORDER BY 1;
+
+
+/* Divide Highest Minor Category vs other categories in different divisions */
+SELECT minor_category,
+       CASE 
+        WHEN minor_category = (SELECT minor_category
+                                  FROM (SELECT minor_category, SUM(value) AS total
+                                    FROM bigquery-public-data.london_crime.crime_by_lsoa
+                                    GROUP BY 1
+                                    ORDER BY 2 DESC
+                                    LIMIT 1))
+                            THEN minor_category 
+        ELSE 'Other'
+       END AS division,-- Dividing the data into 'Top 5' and 'Other Minor Categories'
+       SUM(value) AS total
+  FROM bigquery-public-data.london_crime.crime_by_lsoa
+    GROUP BY 1
+    ORDER BY 3 DESC;
+
+
+/* By Borough Analysis */
+
+/* Divide borough into 2 categories based on highest crime rate each year*/
+SELECT year, borough, 
+    CASE 
+      WHEN borough IN (SELECT borough FROM (SELECT borough, SUM(value) AS total
+                                              FROM bigquery-public-data.london_crime.crime_by_lsoa
+                                              GROUP BY 1
+                                              ORDER BY 2 DESC
+                                              LIMIT 1
+                                            ))
+                      THEN borough 
+      ELSE 'Other Boroughs' 
+    END AS division, -- Dividing the borough data into Highest Borough by Crime and 'Other Boroughs'
+    SUM(value) AS total
+  FROM bigquery-public-data.london_crime.crime_by_lsoa
+  GROUP BY 1,2
+  ORDER BY 1;
+
+/* Find Percentage of How much crime 'Westminster' accounts for each year*/
+WITH yearly_borough_data AS (
+  SELECT year, borough, 
+    CASE 
+      WHEN borough IN (SELECT borough FROM (SELECT borough, SUM(value) AS total
+                                              FROM bigquery-public-data.london_crime.crime_by_lsoa
+                                              GROUP BY 1
+                                              ORDER BY 2 DESC
+                                              LIMIT 1
+                                            ))
+                      THEN borough 
+      ELSE 'Other Boroughs'
+    END AS division,-- Dividing the borough data into Highest Borough by Crime and 'Other Boroughs'
+    SUM(value) AS total
+  FROM bigquery-public-data.london_crime.crime_by_lsoa
+  GROUP BY 1,2
+  ORDER BY 1
+  )
+
+SELECT year, division, ROUND(year_total/SUM(year_total) OVER(PARTITION BY year) * 100, 2) percentage_of_crime
+  FROM (SELECT year, division, SUM(total) AS year_total
+          FROM yearly_borough_data
+          GROUP BY 1,2);
+
+
+/* How much of Crime does 'Theft and Handling' accounts for overall on borough level*/
+SELECT borough, crime_division, ROUND(total/SUM(total) OVER(PARTITION BY borough) * 100, 2) AS percentage
+  FROM (SELECT borough, crime_division, SUM(value) AS total
+    FROM (SELECT *,
+          CASE 
+            WHEN major_category = 'Theft and Handling' THEN 'Theft and Handling'
+            ELSE 'Other' END AS crime_division, -- Dividing the data into 'Theft and Handling' and 'Other'
+          FROM bigquery-public-data.london_crime.crime_by_lsoa)
+    GROUP BY 1,2
+    ORDER BY 1)
+  ORDER BY 2 DESC,3 DESC;
+
+/* Yearly total of 'Theft and Handling' vs other major categories for 'Westminster' */
+WITH borough_data AS (
+  SELECT year, month, borough, major_category, minor_category, SUM(value) AS total,
+      CASE 
+        WHEN major_category = 'Theft and Handling' THEN 'Theft and Handling'
+        ELSE 'Other' 
+      END AS major_division, -- Dividing the data into 'Theft and Handling' and 'Other'
+      CASE 
+        WHEN minor_category = 'Other Theft' THEN minor_category
+        ELSE 'Other'
+      END AS minor_division, -- Dividing the data into 'Other Theft' (This is highest minor category) and 'Other'
+    FROM bigquery-public-data.london_crime.crime_by_lsoa
+    GROUP BY 1,2,3,4,5
+    ORDER BY 1,2)
+
+SELECT year, major_division, SUM(total) AS year_total
+  FROM borough_data
+  WHERE borough = 'Westminster' -- Selecting the data only for westminster
+  GROUP BY 1,2
+  ORDER BY 1,3 DESC;
+
+/* Yearly total of 'Other Theft' (Highest Minor Category overall) vs other minor categories for 'Westminster' */
+WITH borough_data AS (
+  SELECT year, month, borough, major_category, minor_category, SUM(value) AS total,
+      CASE 
+        WHEN major_category = 'Theft and Handling' THEN 'Theft and Handling'
+        ELSE 'Other' 
+      END AS major_division, -- Dividing the data into 'Theft and Handling' and 'Other'
+      CASE 
+        WHEN minor_category = 'Other Theft' THEN minor_category
+        ELSE 'Other'
+      END AS minor_division, -- Dividing the data into 'Other Theft' (This is highest minor category) and 'Other'
+    FROM bigquery-public-data.london_crime.crime_by_lsoa
+    GROUP BY 1,2,3,4,5
+    ORDER BY 1,2)
+
+SELECT year, minor_category, minor_division, SUM(total) AS year_total
+  FROM borough_data
+  WHERE borough = 'Westminster' -- Selecting the data only for westminster
+  GROUP BY 1,2,3
+  ORDER BY 1,4 DESC;
+
+
+/* For each Major category, what's the highest minor category and what borough is it associated with? */
+WITH highest_cat_for_boroughs AS(
+  SELECT major_category, minor_category, borough, SUM(value) AS total
+  FROM bigquery-public-data.london_crime.crime_by_lsoa
+  GROUP BY 1,2,3
+  HAVING SUM(value) IN (SELECT max_total
+                          FROM (SELECT major_category, MAX(total) AS max_total
+                                  FROM (SELECT major_category, minor_category, borough, SUM(value) AS total
+                                          FROM bigquery-public-data.london_crime.crime_by_lsoa
+                                          GROUP BY 1,2,3)
+                                  GROUP BY 1
+                                  ORDER BY 2 DESC))    
+  ORDER BY 4 DESC
+  )
+
+SELECT * 
+  FROM highest_cat_for_boroughs
+  WHERE borough <> 'Enfield'; -- The reason for excluding this borough is because this borough is not the highest for the category it's associated with, instead it has max_total which is why it gets selected.
+
+
+
+
+
